@@ -43,7 +43,7 @@ int main(int argc, char* argv[])
 {
     /* INITIALIZATION OF HTTP REQUEST */
     int params_flag = -1;
-    int path_flag = -1;
+    int path_flag = 0;
     int steps = 0;
     char* url = NULL;
 
@@ -79,7 +79,14 @@ int main(int argc, char* argv[])
         if(strcmp(argv[i], "-r") == 0)
         {
             params_flag = i;
-            steps = atoi(argv[i+1]);
+            if(is_number(argv[i+1]) == 0)
+                steps = atoi(argv[i+1]);
+            //TODO: write down correctly perror
+            else
+            {
+                perror("error in number of params");
+                exit(1);
+            }
             int starting_params = i+2;
             int ending_params = i+2+steps;
             params = get_params(argv, starting_params, ending_params);
@@ -91,6 +98,13 @@ int main(int argc, char* argv[])
         }    
     }
 
+    if(!url || (params_flag != -1 && params == NULL))
+    {
+        perror("error no url was sent or bad params");
+        free(body);
+        free(params);
+        exit(1);
+    }
 
     /* GET THE PORT WHERE THE SERVER LISTENS */
     port = find_port_number(url);
@@ -103,7 +117,7 @@ int main(int argc, char* argv[])
     if(!path)
     {
         path = "/index.html";
-        path_flag = 0;
+        path_flag = -1;
     }
 
 
@@ -131,6 +145,10 @@ int main(int argc, char* argv[])
     //     exit(1);
     // }
 
+    /* WRITE REQUEST TO SERVER WITH write syscall */
+
+    /* READ RESPONSE FROM SERVER while(read(sockfd, buf, sizeof(buf)) > 0) */
+
 
     #if defined(DEBUG)
         printf("GET: 0 \r\nPOST: 1\r\n");
@@ -156,7 +174,7 @@ int main(int argc, char* argv[])
 
     free(host);
 
-    if(path_flag == -1)
+    if(path_flag == 0)
         free(path);
 
     return 0;    
@@ -181,6 +199,7 @@ char* get_params(char* argv[], int starting_params, int ending_params)
     }
     bzero((void*)params, sum_of_bytes);
             
+    char* tmp;
     for(i = starting_params; i < ending_params; i++)
     {
         if(i == starting_params)
@@ -188,6 +207,13 @@ char* get_params(char* argv[], int starting_params, int ending_params)
             params = strcat(params, "?");
         }
 
+        tmp = strchr(argv[i], '=');
+        if(tmp == NULL)
+        {
+            //TODO: fix correctly the perror
+            free(params);
+            return NULL;
+        }
         params = strcat(params, argv[i]);
         
         if(i != ending_params - 1)
@@ -221,16 +247,23 @@ int find_port_number(char* url)
     // get port number
     token_port = strtok(NULL, ":");
 
+    char* tmp = (char*)malloc(sizeof(char)*(strlen(token_port)+1));
+    strcpy(tmp, token_port);
+
+    
     //check if a specific port was entered
-    if(token_port)
+    if(tmp)
     {
-        if(is_number(token_port) == 0)
+        if(is_number(tmp) == 0)
         {
             free(local_url);
-            return atoi(token_port);
+            //TODO: atoi is a risked function, search for other function
+            int port = atoi(tmp);
+            free(tmp);
+            return port;
         }
 
-        else if(is_number(token_port) == -1)
+        else if(is_number(tmp) == -1)
         {
             free(local_url);
             perror("Error: bad url");

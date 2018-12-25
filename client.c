@@ -7,17 +7,13 @@
 
 /* INCLUDES */
 #include <stdio.h>
-#include <signal.h>
 #include <unistd.h>
 #include <stdlib.h>
 #include <sys/wait.h>
-#include <pwd.h>
 #include <string.h>
 #include <strings.h>
-#include <assert.h>
 #include <sys/stat.h>
 #include <fcntl.h>
-#include <sys/ipc.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netdb.h>
@@ -28,8 +24,10 @@
 #define GET 0
 #define POST 1
 #define HTTP_PORT 80
-#define INDEX_SIZE 12
+#define INDEX_SIZE 2
 #define DEBUG
+#define USAGE_ERR "Usage: client [-p <text>] [-r n < pr1=value1 pr2=value2 …>] <URL>\n"
+#define BUFFER_SIZE 65536
 
 
 /* PARSER STRUCT */
@@ -39,6 +37,7 @@ typedef struct client_parse{
     char* params;
     char* body;
     int port;
+    char* request;
 }client_parse;
 
 
@@ -47,14 +46,16 @@ void get_params(client_parse* client_info, char* argv[], int starting_params, in
 void find_port_number(client_parse* client_info,char* url);
 void get_host(client_parse* client_info,char* url);
 void get_path(client_parse* client_info,char* url);
-char* create_request(client_parse* client_info, int request_flag);
+void create_request(client_parse* client_info, int request_flag);
 int is_number(char* num);
 void free_client_parse(client_parse* client_info);
+int count_digits(int num);
 
 
 /* MAIN FUNCTION */
 int main(int argc, char* argv[])
 {
+
     /* INITIALIZATION OF HTTP REQUEST */
     client_parse *client_info = (client_parse*)malloc(sizeof(client_parse));
     if(client_info == NULL)
@@ -62,25 +63,21 @@ int main(int argc, char* argv[])
         perror("client_parse struct\r\n");
         exit(1);
     }
-
+    
     int params_flag = -1;
     int request_flag = GET;
     int steps = 0;
     char* url = NULL;
 
-
-    // char* body = NULL;
-    // char* host = NULL;
-    // char* params = NULL;
-    // char* path = NULL;
-    // int port = HTTP_PORT;
     client_info->host = NULL;
     client_info->path = NULL;
     client_info->params = NULL;
     client_info->body = NULL;
+    client_info->request = NULL;
     client_info->port = HTTP_PORT;
 
 
+    int counter = 1;
     int i;
     for(i = 0; i < argc; i++)
     {
@@ -89,43 +86,64 @@ int main(int argc, char* argv[])
         /* check if GET request or POST request*/        
         if(strcmp(argv[i], "-p") == 0)
         {
+            if(i == argc - 1)
+            {
+                printf(USAGE_ERR);
+                free_client_parse(client_info);
+                exit(1);
+            }
+
             request_flag = POST;
             client_info->body = (char*)malloc(strlen(argv[i+1])+1);
             if(client_info->body == NULL)
             {
-                fprintf(stderr, "Error in malloc");
+                perror("malloc");
                 exit(1);
             }
             bzero(client_info->body, strlen(argv[i+1])+1);
             strcpy(client_info->body, argv[i+1]);
+            counter += 2;
         }
 
         /* check if there are parameters to send */    
         if(strcmp(argv[i], "-r") == 0)
         {
+            if(strcmp(argv[i-1], "-p") == 0)
+                continue;
+            
             params_flag = i;
             if(is_number(argv[i+1]) == 0)
                 steps = atoi(argv[i+1]);
             //TODO: write down correctly perror
             else
             {
-                perror("error in number of params");
+                printf(USAGE_ERR);
+                free_client_parse(client_info);
                 exit(1);
             }
             int starting_params = i+2;
             int ending_params = i+2+steps;
+            if(ending_params > argc)
+            {
+                printf(USAGE_ERR);
+                free_client_parse(client_info);
+                exit(1);
+            }
+            
             get_params(client_info, argv, starting_params, ending_params);
+            counter += steps + 2;
         }
 
         if(is_url && (i < params_flag || i > params_flag + steps + 1 || params_flag == -1))
         {
             url = argv[i];
+            counter++;
         }    
     }
 
-    if(!url || (params_flag != -1 && client_info->params == NULL))
+    if(counter != argc || !url || (params_flag != -1 && client_info->params == NULL))
     {
-        perror("error no url was sent or bad params");
+        printf(USAGE_ERR);
         free_client_parse(client_info);
         exit(1);
     }
@@ -146,83 +164,76 @@ int main(int argc, char* argv[])
     }
 
 
-    // /* INITIALIZATION OF SOCKETS */
-    // int sockfd;
-    // struct hostent* hp;
-    // struct sockaddr_in srv;
+    /* INITIALIZATION OF SOCKETS */
+    int sockfd;
+    struct hostent* hp;
+    struct sockaddr_in srv;
     
-    // /* SETUP CONNECTION TO SERVER */
-    // if((hp = gethostbyname(client_info->host)) == NULL)
-    // {
-    //     herror("gethostbyname\r\n");
-    //     exit(1);
-    // }
-    // bcopy(hp->h_addr, &srv.sin_addr, hp->h_length);
-    // srv.sin_family = AF_INET;
-    // srv.sin_port = htons(client_info->port);
+    /* SETUP CONNECTION TO SERVER */
+    if((hp = gethostbyname(client_info->host)) == NULL)
+    {
+        herror("gethostbyname\r\n");
+        exit(1);
+    }
+    bcopy(hp->h_addr, &srv.sin_addr, hp->h_length);
+    srv.sin_family = AF_INET;
+    srv.sin_port = htons(client_info->port);
 
-    // if((sockfd = socket(PF_INET, SOCK_STREAM, 0)) < 0)
-    // {
-    //     perror("socket\r\n");
-    //     exit(1);
-    // }
+    if((sockfd = socket(PF_INET, SOCK_STREAM, 0)) < 0)
+    {
+        perror("socket\r\n");
+        exit(1);
+    }
 
-    // if(connect(sockfd, (const struct sockaddr*)&srv, sizeof(struct sockaddr_in)) < 0)
-    // {
-    //     perror("connect\r\n");
-    //     exit(1);
-    // }
+    if(connect(sockfd, (const struct sockaddr*)&srv, sizeof(struct sockaddr_in)) < 0)
+    {
+        perror("connect\r\n");
+        exit(1);
+    }
 
     // /* WRITE REQUEST TO SERVER WITH write syscall */
-    char* request = create_request(client_info, request_flag);
-    
+    create_request(client_info, request_flag);
+    printf("HTTP request =\n%s\nLEN = %d\n", client_info->request, (int)strlen(client_info->request));
 
-    // /* READ RESPONSE FROM SERVER while(read(sockfd, buf, sizeof(buf)) > 0) */
-    // char buffer[1024];
-    // bzero(buffer, strlen(buffer));
+    int sent;
+    if((sent = write(sockfd, client_info->request, strlen(client_info->request))) < 0)
+    {
+        perror("write\r\n");
+        exit(1);
+    }
 
-    // int sum = 0, nbytes;
-    // while(1)
-    // {
-    //     nbytes = read(sockfd, buffer + sum, strlen(buffer) - sum);
-    //     if(nbytes == 0)
-    //         break;
-    //     sum += nbytes;
-    //     if(nbytes < 0)
-    //     {
-    //         perror("buffer\r\n");
-    //         exit(1);
-    //     }
-    // }
 
-    #if defined(DEBUG)
-        printf("GET: 0 \r\nPOST: 1\r\n");
-        printf("request flag: %d\r\n", request_flag);
-        if(request_flag == GET)
-            printf("GET REQUEST\r\n");
-        else
+    /* READ RESPONSE FROM SERVER while(read(sockfd, buf, sizeof(buf)) > 0) */
+    char buffer[BUFFER_SIZE];
+    bzero(buffer, BUFFER_SIZE);
+
+    int sum = 0, nbytes = 0;
+    while(1)
+    {
+        nbytes = read(sockfd, buffer + sum, BUFFER_SIZE - sum);
+        if(nbytes == 0)
+            break;
+        sum += nbytes;
+        if(nbytes < 0)
         {
-            printf("POST REQUEST\r\n");
-            printf("body: %s\r\n", client_info->body);
+            perror("buffer\r\n");
+            exit(1);
         }
-        printf("params: %s\r\n", client_info->params);
-        printf("host: %s\r\n", client_info->host);
-        printf("port: %d\r\n", client_info->port);
-        printf("path: %s\r\n\r\n", client_info->path);
-        printf("request:\r\n %s", request);
-    #endif
+    }
+    printf("%s", buffer);
+    printf("\n Total received response bytes: %d\n",sum);
 
     free_client_parse(client_info);
-    free(request);
-    //close(sockfd);
+    close(sockfd);
     return 0;    
 }
 
 
+/* construct string from the parameters that were entered */
 void get_params(client_parse* client_info, char* argv[], int starting_params, int ending_params)
 {
+    /* get the size of bytes that is needed for the string */
     int sum_of_bytes = 0;
-
     int i;
     for(i = starting_params; i < ending_params; i++)
     {
@@ -230,32 +241,51 @@ void get_params(client_parse* client_info, char* argv[], int starting_params, in
     }
     sum_of_bytes += (ending_params - starting_params + 1);
     
+    /* contruct the string using malloc */
     client_info->params = (char*)malloc(sizeof(char)*sum_of_bytes);
     if(client_info->params == NULL)
     {
-        herror("error on params\r\n");
+        perror("malloc\r\n");
         return;
     }
-    bzero((void*)client_info->params, sum_of_bytes);
-            
-    char* tmp;
+    bzero(client_info->params, sum_of_bytes);
+
+    /* concatenate the strings from argv into the parameters string */        
     for(i = starting_params; i < ending_params; i++)
     {
+        /* parameters starts with question mark */
         if(i == starting_params)
         {
             client_info->params = strcat(client_info->params, "?");
         }
 
-        tmp = strchr(argv[i], '=');
-        if(tmp == NULL)
+        /* check if there is a equals sign inside the parameter or it is the first char or last char, if not then Usage error */
+        int j, flag = 0, count = 0;
+        for(j = 0; argv[i][j] != '\0'; j++)
         {
-            //TODO: fix correctly the perror
+            if((j == 0) && (argv[i][j] == '='))
+            {
+                flag++;
+            }
+            else if((j == strlen(argv[i])-1) &&  (argv[i][j] == '='))
+            {
+                flag++;
+            }
+            else if((j > 0) && (j < strlen(argv[i])-1) && (argv[i][j] == '='))
+            {
+                count += 2;
+            }
+        }
+        if(flag - count >= 1)
+        {
+            printf(USAGE_ERR);
             free_client_parse(client_info);
-            perror("usage:\r\n");
             exit(1);
         }
+
         client_info->params = strcat(client_info->params, argv[i]);
         
+        /* between every parameter there is & */
         if(i != ending_params - 1)
         {
             client_info->params = strcat(client_info->params, "&");            
@@ -264,6 +294,7 @@ void get_params(client_parse* client_info, char* argv[], int starting_params, in
 }
 
 
+/* gets the port number from the url and copies it to the client_parse struct */
 void find_port_number(client_parse* client_info, char* url)
 {
     char* local_url = (char*)malloc(sizeof(char)*(strlen(url)+1));
@@ -272,12 +303,14 @@ void find_port_number(client_parse* client_info, char* url)
     char* token_host_port;
     char* token_port;
 
-    // get rid of http first
+    /* get rid of http first, then get host name without path */
     token_host_port = strtok(local_url, "http://");
     token_host_port = strtok(NULL, "/");
 
+    /* check if there is specific port number */
     token_port = strchr(token_host_port, ':');
 
+    /* there isn't specific port so the port is 80 */
     if(!token_port)
     {
         free(local_url);
@@ -285,13 +318,14 @@ void find_port_number(client_parse* client_info, char* url)
         return;
     }
     
+    /* copy port number to tmp */
     char* tmp = (char*)malloc(sizeof(char)*(strlen(token_port)));
     if(tmp == NULL)
     {
-        herror("tmp is NULL\r\n");
+        perror("malloc\r\n");
         return;
     }
-    
+    bzero(tmp, sizeof(char)*(strlen(token_port)));
     int i;
     for(i = 1; token_port[i] != '\0'; i++)
     {
@@ -299,9 +333,10 @@ void find_port_number(client_parse* client_info, char* url)
     }
 
     
-    //check if a specific port was entered
+    /* check if a specific port was entered */
     if(tmp)
     {
+        /* check is the specific port is a number */
         if(is_number(tmp) == 0)
         {
             free(local_url);
@@ -310,16 +345,21 @@ void find_port_number(client_parse* client_info, char* url)
             return;
         }
 
+        /* the specific port is not a number */
         else if(is_number(tmp) == -1)
         {
             free(local_url);
-            herror("Error: bad url");
+            client_info->port = -1;
             return;
+            // printf(USAGE_ERR);
+            // free_client_parse(client_info);
+            // exit(1);
         }
     }
 }
 
 
+/* gets the host from the url and copies it to the client_parse struct */
 void get_host(client_parse* client_info, char* url)
 {
     char* local_url = (char*)malloc(sizeof(char)*(strlen(url)+1));
@@ -328,47 +368,56 @@ void get_host(client_parse* client_info, char* url)
     char* token_host_port;
     char* token_host;
 
-    // get rid of http first
+    /* get rid of http first */
     token_host_port = strtok(local_url, "//");
     
-    // get hostname and port
+    /* get hostname and port */
     token_host_port = strtok(NULL, "/");
     
-    // get hostname without port number
+    /* get hostname without port number */
     token_host = strtok(token_host_port, ":");
 
-
-    //TODO: need to free in main
+    /* copy host to the struct */
     client_info->host = (char*)malloc(sizeof(char)*(strlen(token_host)+1));
     if(client_info->host == NULL)
     {
-        herror("client_info->host is NULL\r\n");
+        perror("malloc\r\n");
         return;
     }
     strcpy(client_info->host, token_host);
-
     free(local_url);
-    return;
 }
 
 
+/* gets the path from the url and copies it to the client_parse struct */
 void get_path(client_parse* client_info, char* url)
 {
     char* local_url = (char*)malloc(sizeof(char)*(strlen(url)+1));
     strcpy(local_url, url);
 
-    // get rid of http:
-    char* token = strtok(local_url, "http://");
+    /* get rid of http: */
+    char* token = strstr(local_url, "http://");
     
-    // get only path    
+    /* get only path */   
+    if(strchr(token, '/') == NULL)
+    {
+        free(local_url);
+        return;
+    }
+    token = strtok(token, "http://");
     token = strtok(NULL, "/");
     token = strtok(NULL, "");
+    if(!token)
+    {
+        free(local_url);
+        return;
+    }
 
-    //TODO: need to free in main
+    /* copy string of path to the struct and add one more place for the / in the start */
     client_info->path = (char*)malloc(sizeof(char)*(strlen(token)+2));
     if(client_info->path == NULL)
     {
-        herror("client_info->path is NULL\r\n");
+        perror("malloc\r\n");
         return;
     }
 
@@ -377,48 +426,100 @@ void get_path(client_parse* client_info, char* url)
     {
         if(i == 0)
             client_info->path[i] = '/';
+
         else if(i == strlen(token)+1)
             client_info->path[i] = '\0';
+        
         else
         {
             client_info->path[i] = token[j];
             j++;
         }
     }
-
     free(local_url);
-    return;  
 }
 
 
-char* create_request(client_parse* client_info, int request_flag)
+/* constructs the http request and copies it to the client_parse struct */
+void create_request(client_parse* client_info, int request_flag)
 {
-    char* request = NULL;
-    // char* get = "GET ";
-    // char* post = "POST ";
-    // char* http = " HTTP/1.0";
-    // char* host = "Host: ";
-    // char* new_line = "\r\n";
+    /* get the length of each string so we will know what is the size of the request for malloc */
+    char* get = "GET ";
+    char* post = "POST ";
+    char* http = " HTTP/1.0";
+    char* host = "Host: ";
+    char* content = "Content-length:";
+    char* new_line = "\r\n";
     int size = 0;
-    size += strlen(" HTTP/1.0\r\nHost: ") + strlen("\r\n\r\n") + strlen(client_info->path) + strlen(client_info->host) + strlen(client_info->params);
+
+    /* length of get request and post request are different */
     if(request_flag == GET)
     {
-        size += strlen("GET ");
-        request = (char*)malloc(sizeof(char)*(size + 1));
-        bzero(request, strlen(request));
-        sprintf(request, "GET %s%s HTTP/1.0\r\nHost: %s\r\n\r\n", client_info->path, client_info->params, client_info->host);
+        size += strlen(get);
+        size += strlen(new_line);
     }
     else if(request_flag == POST)
     {
-        size += strlen(client_info->body) + strlen("POST ") + strlen("\r\n");
-        request = (char*)malloc(sizeof(char)*(size+1));
-        bzero(request, strlen(request));
-        sprintf(request, "POST %s%s HTTP/1.0\r\nHost: %s\r\nContent-length:%d\r\n\r\n%s\r\n", client_info->path, client_info->params, client_info->host, (int)strlen(client_info->body), client_info->body);
+        /* we need to know the number of digits of the length of the body for the length of the http request */
+        int digits = count_digits(strlen(client_info->body)) + 1;
+        char* body_length = (char*)malloc(sizeof(char)*(digits));
+        if(body_length == NULL)
+        {
+            perror("malloc\r\n");
+            free_client_parse(client_info);
+            exit(1);
+        }
+        bzero(body_length, sizeof(char)*(digits));
+        sprintf(body_length, "%d", (int)strlen(client_info->body));
+        
+        size += strlen(post);
+        size += strlen(content);
+        size += strlen(body_length);
+        size += strlen(new_line);
+        size += strlen(new_line);
+        size += strlen(client_info->body);
+        size += strlen(new_line);
+        free(body_length);
     }
-    return request; 
+
+    size += strlen(client_info->path);
+    if(client_info->params)
+    {
+        size += strlen(client_info->params);
+    }
+    size += strlen(http);
+    size += strlen(new_line);
+    size += strlen(host);
+    size += strlen(client_info->host);
+    size += strlen(new_line);
+
+    client_info->request = (char*)malloc(sizeof(char)*(size + 1));
+    if(client_info->request == NULL)
+    {
+        perror("malloc\r\n");
+        free_client_parse(client_info);
+        exit(1);
+    }
+    bzero(client_info->request, sizeof(char)*(size + 1));
+
+    if(request_flag == GET)
+    {
+        if(client_info->params)
+            sprintf(client_info->request, "GET %s%s HTTP/1.0\r\nHost: %s\r\n\r\n", client_info->path, client_info->params, client_info->host);
+        else
+            sprintf(client_info->request, "GET %s HTTP/1.0\r\nHost: %s\r\n\r\n", client_info->path, client_info->host);
+    }
+    else if(request_flag == POST)
+    {
+        if(client_info->params)
+            sprintf(client_info->request, "POST %s%s HTTP/1.0\r\nHost: %s\r\nContent-length:%d\r\n\r\n%s\r\n", client_info->path, client_info->params, client_info->host, (int)strlen(client_info->body), client_info->body);
+        else
+            sprintf(client_info->request, "POST %s HTTP/1.0\r\nHost: %s\r\nContent-length:%d\r\n\r\n%s\r\n", client_info->path, client_info->host, (int)strlen(client_info->body), client_info->body);
+    }
 }
 
 
+/* checks if a certain string is a number. if it is a number then return 0, else -1 */
 int is_number(char* num)
 {
     int i;
@@ -430,11 +531,11 @@ int is_number(char* num)
         else
             return -1;
     }
-
     return 0;
 }
 
 
+/* free struct */
 void free_client_parse(client_parse* client_info)
 {
     if(client_info->host)
@@ -449,6 +550,21 @@ void free_client_parse(client_parse* client_info)
     if(client_info->body)
         free(client_info->body);
 
+    if(client_info->request)
+        free(client_info->request);
 
     free(client_info);
+}
+
+
+/* count the number of digits */
+int count_digits(int num)
+{
+    int digits = 0;
+    while(num != 0)
+    {
+        num /= 10;
+        digits++;
+    }
+    return digits;
 }

@@ -9,7 +9,7 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <stdlib.h>
-#include <sys/wait.h>
+#include <pwd.h>
 #include <string.h>
 #include <strings.h>
 #include <sys/stat.h>
@@ -26,7 +26,7 @@
 #define HTTP_PORT 80
 #define INDEX_SIZE 2
 #define DEBUG
-#define USAGE_ERR "Usage: client [-p <text>] [-r n < pr1=value1 pr2=value2 …>] <URL>\n"
+#define USAGE_ERR "Usage: client [-p <text>] [-r n < pr1=value1 pr2=value2 …>] <URL>"
 #define BUFFER_SIZE 65536
 
 
@@ -66,6 +66,7 @@ int main(int argc, char* argv[])
     
     int params_flag = -1;
     int request_flag = GET;
+    int request_index = -1;
     int steps = 0;
     char* url = NULL;
 
@@ -77,11 +78,18 @@ int main(int argc, char* argv[])
     client_info->port = HTTP_PORT;
 
 
-    int counter = 1;
-    int i;
-    for(i = 0; i < argc; i++)
+    int i, counter = 1;
+    for(i = 1; i < argc; i++)
     {
         char* is_url = strstr(argv[i], "http://");
+
+        if((strcmp(argv[i], "-p") != 0) && (strcmp(argv[i], "-r") != 0) && is_url == NULL)
+        {
+            printf(USAGE_ERR);
+            free_client_parse(client_info);
+            exit(1);
+        }
+
 
         /* check if GET request or POST request*/        
         if(strcmp(argv[i], "-p") == 0)
@@ -93,6 +101,14 @@ int main(int argc, char* argv[])
                 exit(1);
             }
 
+            if(request_flag == POST)
+            {
+                printf(USAGE_ERR);
+                free_client_parse(client_info);
+                exit(1);
+            }
+
+            request_index = i;
             request_flag = POST;
             client_info->body = (char*)malloc(strlen(argv[i+1])+1);
             if(client_info->body == NULL)
@@ -102,8 +118,12 @@ int main(int argc, char* argv[])
             }
             bzero(client_info->body, strlen(argv[i+1])+1);
             strcpy(client_info->body, argv[i+1]);
+            i += 2;
             counter += 2;
         }
+
+        if(i == argc)
+            break;        
 
         /* check if there are parameters to send */    
         if(strcmp(argv[i], "-r") == 0)
@@ -111,16 +131,38 @@ int main(int argc, char* argv[])
             if(strcmp(argv[i-1], "-p") == 0)
                 continue;
             
-            params_flag = i;
-            if(is_number(argv[i+1]) == 0)
-                steps = atoi(argv[i+1]);
-            //TODO: write down correctly perror
-            else
+            if(params_flag != -1)
             {
                 printf(USAGE_ERR);
                 free_client_parse(client_info);
                 exit(1);
             }
+
+            if(i == argc - 1)
+            {
+                printf(USAGE_ERR);
+                free_client_parse(client_info);
+                exit(1);
+            }
+
+            params_flag = i;
+            if(is_number(argv[i+1]) == 0)
+                steps = atoi(argv[i+1]);
+            
+            else if(is_number(argv[i+1]) == -1)
+            {
+                printf(USAGE_ERR);
+                free_client_parse(client_info);
+                exit(1);
+            }
+
+            if(steps == 0)
+            {
+                params_flag = -1;
+                i += 2;
+                counter += 2;
+            }
+
             int starting_params = i+2;
             int ending_params = i+2+steps;
             if(ending_params > argc)
@@ -129,19 +171,24 @@ int main(int argc, char* argv[])
                 free_client_parse(client_info);
                 exit(1);
             }
-            
+
             get_params(client_info, argv, starting_params, ending_params);
-            counter += steps + 2;
+            i += steps + 2;
+            counter += steps +2;
         }
 
-        if(is_url && (i < params_flag || i > params_flag + steps + 1 || params_flag == -1))
+        if(i == argc)
+            break;
+
+        if(is_url && (i < params_flag || i > params_flag + steps + 1 || params_flag == -1 || request_index == -1 || i < request_index || i > request_index + 2))
         {
             url = argv[i];
             counter++;
         }    
     }
 
-    if(counter != argc || !url || (params_flag != -1 && client_info->params == NULL))
+    /* if we didn't get URL or we didn't get any parameters */
+    if(counter != argc || url == NULL || (params_flag != -1 && client_info->params == NULL))
     {
         printf(USAGE_ERR);
         free_client_parse(client_info);
@@ -173,6 +220,7 @@ int main(int argc, char* argv[])
     if((hp = gethostbyname(client_info->host)) == NULL)
     {
         herror("gethostbyname\r\n");
+        free_client_parse(client_info);
         exit(1);
     }
     bcopy(hp->h_addr, &srv.sin_addr, hp->h_length);
@@ -260,23 +308,22 @@ void get_params(client_parse* client_info, char* argv[], int starting_params, in
         }
 
         /* check if there is a equals sign inside the parameter or it is the first char or last char, if not then Usage error */
-        int j, flag = 0, count = 0;
+        int j, counter = 0;
         for(j = 0; argv[i][j] != '\0'; j++)
         {
             if((j == 0) && (argv[i][j] == '='))
             {
-                flag++;
+                printf(USAGE_ERR);
+                free_client_parse(client_info);
+                exit(1);               
             }
-            else if((j == strlen(argv[i])-1) &&  (argv[i][j] == '='))
-            {
-                flag++;
-            }
-            else if((j > 0) && (j < strlen(argv[i])-1) && (argv[i][j] == '='))
-            {
-                count += 2;
+           
+           if(argv[i][j] == '=')
+           {
+               counter++;
             }
         }
-        if(flag - count >= 1)
+        if(counter == 0)
         {
             printf(USAGE_ERR);
             free_client_parse(client_info);
@@ -310,6 +357,7 @@ void find_port_number(client_parse* client_info, char* url)
     /* check if there is specific port number */
     token_port = strchr(token_host_port, ':');
 
+
     /* there isn't specific port so the port is 80 */
     if(!token_port)
     {
@@ -317,7 +365,17 @@ void find_port_number(client_parse* client_info, char* url)
         client_info->port = HTTP_PORT;
         return;
     }
-    
+
+
+    /* check if no specific port was entered but there are : */ 
+    if(strcmp(token_port, ":") == 0)
+    {
+        free(local_url);
+        printf(USAGE_ERR);
+        free_client_parse(client_info);
+        exit(1);
+    }
+
     /* copy port number to tmp */
     char* tmp = (char*)malloc(sizeof(char)*(strlen(token_port)));
     if(tmp == NULL)
@@ -348,12 +406,12 @@ void find_port_number(client_parse* client_info, char* url)
         /* the specific port is not a number */
         else if(is_number(tmp) == -1)
         {
-            free(local_url);
-            client_info->port = -1;
-            return;
-            // printf(USAGE_ERR);
-            // free_client_parse(client_info);
-            // exit(1);
+            // free(local_url);
+            // client_info->port = -1;
+            // return;
+            printf(USAGE_ERR);
+            free_client_parse(client_info);
+            exit(1);
         }
     }
 }

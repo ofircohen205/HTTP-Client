@@ -2,7 +2,7 @@
 *  ID: 312255847
 *  DATE: 31/12/2018
 *
-*  This program is an implementation of an http client 
+*  This program is an implementation of an HTTP client 
 */
 
 /* INCLUDES */
@@ -26,7 +26,7 @@
 #define HTTP_PORT 80
 #define INDEX_SIZE 2
 #define DEBUG
-#define USAGE_ERR "Usage: client [-p <text>] [-r n < pr1=value1 pr2=value2 …>] <URL>"
+#define USAGE_ERR "Usage: client [-p <text>] [-r n < pr1=value1 pr2=value2 …>] <URL>\n"
 #define BUFFER_SIZE 65536
 
 
@@ -66,7 +66,7 @@ int main(int argc, char* argv[])
     
     int params_flag = -1;
     int request_flag = GET;
-    int request_index = -1;
+    int request_index = -1;     /* checks if the url is inside the body */
     int steps = 0;
     char* url = NULL;
 
@@ -82,14 +82,6 @@ int main(int argc, char* argv[])
     for(i = 1; i < argc; i++)
     {
         char* is_url = strstr(argv[i], "http://");
-
-        if((strcmp(argv[i], "-p") != 0) && (strcmp(argv[i], "-r") != 0) && is_url == NULL)
-        {
-            printf(USAGE_ERR);
-            free_client_parse(client_info);
-            exit(1);
-        }
-
 
         /* check if GET request or POST request*/        
         if(strcmp(argv[i], "-p") == 0)
@@ -118,12 +110,9 @@ int main(int argc, char* argv[])
             }
             bzero(client_info->body, strlen(argv[i+1])+1);
             strcpy(client_info->body, argv[i+1]);
-            i += 2;
             counter += 2;
         }
 
-        if(i == argc)
-            break;        
 
         /* check if there are parameters to send */    
         if(strcmp(argv[i], "-r") == 0)
@@ -159,8 +148,8 @@ int main(int argc, char* argv[])
             if(steps == 0)
             {
                 params_flag = -1;
-                i += 2;
                 counter += 2;
+                continue;
             }
 
             int starting_params = i+2;
@@ -173,12 +162,8 @@ int main(int argc, char* argv[])
             }
 
             get_params(client_info, argv, starting_params, ending_params);
-            i += steps + 2;
-            counter += steps +2;
+            counter += steps + 2;
         }
-
-        if(i == argc)
-            break;
 
         if(is_url && (i < params_flag || i > params_flag + steps + 1 || params_flag == -1 || request_index == -1 || i < request_index || i > request_index + 2))
         {
@@ -215,6 +200,7 @@ int main(int argc, char* argv[])
     int sockfd;
     struct hostent* hp;
     struct sockaddr_in srv;
+    
     
     /* SETUP CONNECTION TO SERVER */
     if((hp = gethostbyname(client_info->host)) == NULL)
@@ -353,6 +339,13 @@ void find_port_number(client_parse* client_info, char* url)
     /* get rid of http first, then get host name without path */
     token_host_port = strtok(local_url, "http://");
     token_host_port = strtok(NULL, "/");
+
+    if(!token_host_port)
+    {
+        free(local_url);
+        client_info->port = HTTP_PORT;
+        return;
+    }
 
     /* check if there is specific port number */
     token_port = strchr(token_host_port, ':');
@@ -560,6 +553,7 @@ void create_request(client_parse* client_info, int request_flag)
     }
     bzero(client_info->request, sizeof(char)*(size + 1));
 
+    /* concatenate the strings to create a request string */
     if(request_flag == GET)
     {
         if(client_info->params)

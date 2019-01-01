@@ -1,6 +1,6 @@
 /* NAME: Ofir Cohen
 *  ID: 312255847
-*  DATE: 31/12/2018
+*  DATE: 3/1/2018
 *
 *  This program is an implementation of an HTTP client 
 */
@@ -25,9 +25,8 @@
 #define POST 1
 #define HTTP_PORT 80
 #define INDEX_SIZE 2
-#define DEBUG
 #define USAGE_ERR "Usage: client [-p <text>] [-r n < pr1=value1 pr2=value2 …>] <URL>\n"
-#define BUFFER_SIZE 65536
+#define BUFFER_SIZE 2
 
 
 /* PARSER STRUCT */
@@ -47,6 +46,7 @@ void find_port_number(client_parse* client_info,char* url);
 void get_host(client_parse* client_info,char* url);
 void get_path(client_parse* client_info,char* url);
 void create_request(client_parse* client_info, int request_flag);
+int create_socket(client_parse* client_info);
 int is_number(char* num);
 void free_client_parse(client_parse* client_info);
 int count_digits(int num);
@@ -196,34 +196,9 @@ int main(int argc, char* argv[])
     }
 
 
-    /* INITIALIZATION OF SOCKETS */
-    int sockfd;
-    struct hostent* hp;
-    struct sockaddr_in srv;
+    /* INITIALIZATION OF SOCKET */
+    int sockfd = create_socket(client_info);
     
-    
-    /* SETUP CONNECTION TO SERVER */
-    if((hp = gethostbyname(client_info->host)) == NULL)
-    {
-        herror("gethostbyname\r\n");
-        free_client_parse(client_info);
-        exit(1);
-    }
-    bcopy(hp->h_addr, &srv.sin_addr, hp->h_length);
-    srv.sin_family = AF_INET;
-    srv.sin_port = htons(client_info->port);
-
-    if((sockfd = socket(PF_INET, SOCK_STREAM, 0)) < 0)
-    {
-        perror("socket\r\n");
-        exit(1);
-    }
-
-    if(connect(sockfd, (const struct sockaddr*)&srv, sizeof(struct sockaddr_in)) < 0)
-    {
-        perror("connect\r\n");
-        exit(1);
-    }
 
     // /* WRITE REQUEST TO SERVER WITH write syscall */
     create_request(client_info, request_flag);
@@ -244,7 +219,7 @@ int main(int argc, char* argv[])
     int sum = 0, nbytes = 0;
     while(1)
     {
-        nbytes = read(sockfd, buffer + sum, BUFFER_SIZE - sum);
+        nbytes = read(sockfd, buffer, BUFFER_SIZE - 1);
         if(nbytes == 0)
             break;
         sum += nbytes;
@@ -253,8 +228,9 @@ int main(int argc, char* argv[])
             perror("buffer\r\n");
             exit(1);
         }
+        printf("%s", buffer);
+        bzero(buffer, BUFFER_SIZE);
     }
-    printf("%s", buffer);
     printf("\n Total received response bytes: %d\n",sum);
 
     free_client_parse(client_info);
@@ -570,6 +546,40 @@ void create_request(client_parse* client_info, int request_flag)
     }
 }
 
+
+/**/
+int create_socket(client_parse* client_info)
+{
+    int sockfd;
+    struct hostent* hp;
+    struct sockaddr_in srv;
+    
+    
+    /* SETUP CONNECTION TO SERVER */
+    if((hp = gethostbyname(client_info->host)) == NULL)
+    {
+        herror("gethostbyname\r\n");
+        free_client_parse(client_info);
+        exit(1);
+    }
+    bcopy(hp->h_addr, &srv.sin_addr, hp->h_length);
+    srv.sin_family = AF_INET;
+    srv.sin_port = htons(client_info->port);
+
+    if((sockfd = socket(PF_INET, SOCK_STREAM, 0)) < 0)
+    {
+        perror("socket\r\n");
+        exit(1);
+    }
+
+    if(connect(sockfd, (const struct sockaddr*)&srv, sizeof(struct sockaddr_in)) < 0)
+    {
+        perror("connect\r\n");
+        exit(1);
+    }
+
+    return sockfd;
+}
 
 /* checks if a certain string is a number. if it is a number then return 0, else -1 */
 int is_number(char* num)

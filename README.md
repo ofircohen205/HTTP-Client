@@ -55,6 +55,11 @@ input: client_parse struct, request_flag (GET or POST)
 output: construct the request to be send to the server, will be place in the request in the struct
 
 
+int create_socket(client_parse* client_info);
+input: client_parse struct
+output: file descriptor number where we will connect to
+
+
 int is_number(char* num);
 input: string of supposed to be number
 output: if it is number then return 0, else return -1
@@ -71,5 +76,5 @@ output: the number of digits of the number
 
 
 int main(int argc, char* argv[]);
-input:
-output:
+input: any order of "client [-p <text>] [-r n < pr1=value1 pr2=value2 …>] <URL>"
+output: HTTP Client request for a server and server response

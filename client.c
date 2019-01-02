@@ -88,6 +88,7 @@ int main(int argc, char* argv[])
         /* check if GET request or POST request*/        
         if(strcmp(argv[i], "-p") == 0)
         {
+            /* if -p is the last argument so USAGE ERROR */
             if(i == argc - 1)
             {
                 printf(USAGE_ERR);
@@ -95,6 +96,7 @@ int main(int argc, char* argv[])
                 exit(1);
             }
 
+            /* if we already passed '-p' argument */
             if(request_flag == POST)
             {
                 printf(USAGE_ERR);
@@ -113,15 +115,19 @@ int main(int argc, char* argv[])
             bzero(client_info->body, strlen(argv[i+1])+1);
             strcpy(client_info->body, argv[i+1]);
             counter += 2;
+            i++;
+            continue;
         }
 
 
         /* check if there are parameters to send */    
         if(strcmp(argv[i], "-r") == 0)
         {
+            /* if '-r' is the text after '-p' so continue */
             if(strcmp(argv[i-1], "-p") == 0)
                 continue;
             
+            /* we already passed '-r' */
             if(params_flag != -1)
             {
                 printf(USAGE_ERR);
@@ -129,6 +135,7 @@ int main(int argc, char* argv[])
                 exit(1);
             }
 
+            /* if '-r' is the last argument we get */
             if(i == argc - 1)
             {
                 printf(USAGE_ERR);
@@ -136,6 +143,7 @@ int main(int argc, char* argv[])
                 exit(1);
             }
 
+            /* check if the argument after '-r' is a number, if not then USAGE ERROR */
             params_flag = i;
             if(is_number(argv[i+1]) == 0)
                 steps = atoi(argv[i+1]);
@@ -182,6 +190,7 @@ int main(int argc, char* argv[])
         exit(1);
     }
 
+    /* if the url is only http:// */
     if(strlen(url) <= SIZE_OF_HTTP)
     {
         printf(USAGE_ERR);

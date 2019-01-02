@@ -24,6 +24,7 @@
 #define GET 0
 #define POST 1
 #define HTTP_PORT 80
+#define SIZE_OF_HTTP 7
 #define INDEX_SIZE 2
 #define USAGE_ERR "Usage: client [-p <text>] [-r n < pr1=value1 pr2=value2 …>] <URL>\n"
 #define BUFFER_SIZE 2
@@ -47,6 +48,7 @@ void get_host(client_parse* client_info,char* url);
 void get_path(client_parse* client_info,char* url);
 void create_request(client_parse* client_info, int request_flag);
 int create_socket(client_parse* client_info);
+void read_write_from_server(int sockfd, client_parse* client_info);
 int is_number(char* num);
 void free_client_parse(client_parse* client_info);
 int count_digits(int num);
@@ -180,6 +182,12 @@ int main(int argc, char* argv[])
         exit(1);
     }
 
+    if(strlen(url) <= SIZE_OF_HTTP)
+    {
+        printf(USAGE_ERR);
+        free_client_parse(client_info);
+        exit(1);
+    }
 
     /* GET THE PORT WHERE THE SERVER LISTENS */
     find_port_number(client_info, url);
@@ -195,44 +203,14 @@ int main(int argc, char* argv[])
         strcpy(client_info->path, "/");
     }
 
-
     /* INITIALIZATION OF SOCKET */
     int sockfd = create_socket(client_info);
-    
-
-    // /* WRITE REQUEST TO SERVER WITH write syscall */
     create_request(client_info, request_flag);
-    printf("HTTP request =\n%s\nLEN = %d\n", client_info->request, (int)strlen(client_info->request));
 
-    int sent;
-    if((sent = write(sockfd, client_info->request, strlen(client_info->request))) < 0)
-    {
-        perror("write\r\n");
-        exit(1);
-    }
-
-
-    /* READ RESPONSE FROM SERVER while(read(sockfd, buf, sizeof(buf)) > 0) */
-    char buffer[BUFFER_SIZE];
-    bzero(buffer, BUFFER_SIZE);
-
-    int sum = 0, nbytes = 0;
-    while(1)
-    {
-        nbytes = read(sockfd, buffer, BUFFER_SIZE - 1);
-        if(nbytes == 0)
-            break;
-        sum += nbytes;
-        if(nbytes < 0)
-        {
-            perror("buffer\r\n");
-            exit(1);
-        }
-        printf("%s", buffer);
-        bzero(buffer, BUFFER_SIZE);
-    }
-    printf("\n Total received response bytes: %d\n",sum);
-
+    /* WRITE REQUEST TO SERVER */
+    read_write_from_server(sockfd, client_info);
+    
+    /* FREE STRUCT AND FREE SOCKET DESCRIPTOR */
     free_client_parse(client_info);
     close(sockfd);
     return 0;    
@@ -540,14 +518,50 @@ void create_request(client_parse* client_info, int request_flag)
     else if(request_flag == POST)
     {
         if(client_info->params)
-            sprintf(client_info->request, "POST %s%s HTTP/1.0\r\nHost: %s\r\nContent-length:%d\r\n\r\n%s\r\n", client_info->path, client_info->params, client_info->host, (int)strlen(client_info->body), client_info->body);
+            sprintf(client_info->request, "POST %s%s HTTP/1.0\r\nHost: %s\r\nContent-length:%d\r\n\r\n%s", client_info->path, client_info->params, client_info->host, (int)strlen(client_info->body), client_info->body);
         else
-            sprintf(client_info->request, "POST %s HTTP/1.0\r\nHost: %s\r\nContent-length:%d\r\n\r\n%s\r\n", client_info->path, client_info->host, (int)strlen(client_info->body), client_info->body);
+            sprintf(client_info->request, "POST %s HTTP/1.0\r\nHost: %s\r\nContent-length:%d\r\n\r\n%s", client_info->path, client_info->host, (int)strlen(client_info->body), client_info->body);
     }
+
+    printf("HTTP request =\n%s\nLEN = %d\n", client_info->request, (int)strlen(client_info->request));
 }
 
 
-/**/
+/* writes HTTP request to server and reads HTTP response from server */
+void read_write_from_server(int sockfd, client_parse* client_info)
+{
+    int sent;
+    if((sent = write(sockfd, client_info->request, strlen(client_info->request))) < 0)
+    {
+        perror("write\r\n");
+        exit(1);
+    }
+
+
+    /* READ RESPONSE FROM SERVER while(read(sockfd, buf, sizeof(buf)) > 0) */
+    char buffer[BUFFER_SIZE];
+    bzero(buffer, BUFFER_SIZE);
+
+    int sum = 0, nbytes = 0;
+    while(1)
+    {
+        nbytes = read(sockfd, buffer, BUFFER_SIZE - 1);
+        if(nbytes == 0)
+            break;
+        sum += nbytes;
+        if(nbytes < 0)
+        {
+            perror("buffer\r\n");
+            exit(1);
+        }
+        printf("%s", buffer);
+        bzero(buffer, BUFFER_SIZE);
+    }
+    printf("\n Total received response bytes: %d\n",sum);
+}
+
+
+/* creates a socket descriptor and connecting to the host */
 int create_socket(client_parse* client_info)
 {
     int sockfd;

@@ -60,6 +60,11 @@ input: client_parse struct
 output: file descriptor number where we will connect to
 
 
+void read_write_from_server(int sockfd, client_parse* client_info);
+input: socket descriptor, client_parse struct
+output: writes http request to server and reads http response from server
+
+
 int is_number(char* num);
 input: string of supposed to be number
 output: if it is number then return 0, else return -1
